@@ -8,9 +8,20 @@ BASS_DRUM_FREQ_RANGE = (50, 100)  # Bass drum typically in 50-100 Hz
 SNARE_DRUM_FREQ_RANGE = (160, 220)  # Snare drum typically in 200-220 Hz
 HI_HAT_FREQ_RANGE = (300, 500)  # Hi-hat typically in 300-500 Hz
 
+"""
+1. audio input until keyboard inturrupt
+2. 3 chunks of loop for bass, snare, hihat
+3. during each loop, I need to record the max magnitude of each drum
+    - range of frequencies around peak magnitue frequency
+4. number of peaks and distance between two peaks could be taken into the acount
+    - keep track of number of peaks and their positions
+    - number of peaks could be enough?
+"""
+
+
 # Define Thresholds for different drums based on prior investigation.
-TH_BASS = 2e4
-TH_SNARE = 1e8
+TH_BASS = 3.2e5
+TH_SNARE = 2.5e6
 TH_HIHAT = 0.4e7
 
 
@@ -38,7 +49,7 @@ p = pyaudio.PyAudio()
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
 RATE = 44100
-sample_time = 0.1  # 50 ms
+sample_time = 0.1
 CHUNK = int(RATE * sample_time)
 
 # Start the audio stream
