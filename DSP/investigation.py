@@ -1,32 +1,80 @@
+import pyaudio
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.io import wavfile
-import os
+import matplotlib as mpl
+from numpy.fft import rfft, rfftfreq
 
-# This will print the current working directory
-print("Current Working Directory:", os.getcwd())
+# Audio parameters
+END = False
+audio_fmt = pyaudio.paInt8
+channel_num = 1
+sample_rate = 2200
+sample_interval = 1 / sample_rate
+sample_time = 0.1
+chunk = int(sample_time / sample_interval)
 
-sample_rate, data = wavfile.read("bass.wav")
+# Initialize PyAudio
+p = pyaudio.PyAudio()
+stream = p.open(
+    format=audio_fmt,
+    channels=channel_num,
+    rate=sample_rate,
+    input=True,
+    frames_per_buffer=chunk,
+)
 
-# If stereo, convert to mono by averaging the channels
-if data.ndim > 1:
-    data = np.mean(data, axis=1)
 
-# Compute the FFT of the signal
-fft_result = np.fft.fft(data)
-fft_magnitude = np.abs(fft_result)
+# Key press event handler
+def on_press(event):
+    global END
+    if event.key == "q":
+        plt.close()
+        stream.stop_stream()
+        stream.close()
+        p.terminate()
+        END = True
 
-# Generate frequency bins
-freqs = np.fft.fftfreq(len(fft_magnitude), d=1 / sample_rate)
 
-# Plot only the frequencies in range 0 - 600 Hz
-# Since the FFT output and frequency bins are symmetrical, take the first half
-half_n = len(freqs) // 2
-plt.figure(figsize=(12, 6))
-plt.plot(freqs[:half_n], fft_magnitude[:half_n])
-plt.xlim(0, 600)
-plt.title("Frequency Spectrum of Drum Beat")
-plt.xlabel("Frequency (Hz)")
-plt.ylabel("Magnitude")
-plt.grid()
+x_lim = sample_rate // 2
+# Plotting setup
+mpl.rcParams["toolbar"] = "None"
+fig, ax = plt.subplots(figsize=(12, 3))
+fig.canvas.mpl_connect("key_press_event", on_press)
+plt.subplots_adjust(left=0.05, top=0.95, right=0.95, bottom=0.05)
+plt.get_current_fig_manager().set_window_title("Spectrum")
+freq = rfftfreq(chunk, d=sample_interval)
+y_data = np.zeros_like(freq)
+(line,) = ax.step(freq, y_data, where="mid", color="#C04851")
+ax.set_xlim(0, x_lim)
+ax.set_ylim(0, 5)
+ax.set_xticks(np.arange(0, x_lim, 50))
+ax.set_yticks(np.arange(0, 5, 1))
+ax.set_xlabel("Frequency (Hz)")
+ax.set_ylabel("Amplitude")
+plt.grid(True, linestyle="-.", color="#C04851", alpha=0.3)  # 设置网格
+
+plt.ion()
 plt.show()
+
+# Main loop
+try:  # Use try-except to catch KeyboardInterrupt
+    while not END:
+        data = stream.read(chunk, exception_on_overflow=False)
+        data = np.frombuffer(data, dtype=np.int8)
+        X = rfft(data)
+        y_data = np.abs(X) * 0.01
+        line.set_ydata(y_data)
+        fig.canvas.draw_idle()  # Redraw the figure
+        plt.pause(0.01)
+
+    # Cleanup
+    plt.close()
+    stream.stop_stream()
+    stream.close()
+    p.terminate()
+
+except KeyboardInterrupt:
+    # Stop and close the audio stream
+    stream.stop_stream()
+    stream.close()
+    p.terminate()
