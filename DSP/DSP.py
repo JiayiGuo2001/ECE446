@@ -2,53 +2,15 @@ import pyaudio
 import numpy as np
 import numpy.fft as fft
 from scipy.signal import butter, lfilter
-
-# Define the frequency ranges for different drums
-BASS_DRUM_FREQ_RANGE = (50, 100)  # Bass drum typically in 50-100 Hz
-SNARE_DRUM_FREQ_RANGE = (160, 220)  # Snare drum typically in 200-220 Hz
-HI_HAT_FREQ_RANGE = (300, 500)  # Hi-hat typically in 300-500 Hz
-
-"""
-1. audio input until keyboard inturrupt
-2. 3 chunks of loop for bass, snare, hihat
-3. during each loop, I need to record the max magnitude of each drum
-    - range of frequencies around peak magnitue frequency
-4. number of peaks and distance between two peaks could be taken into the acount
-    - keep track of number of peaks and their positions
-    - number of peaks could be enough?
-"""
-
-
-# Define Thresholds for different drums based on prior investigation.
-TH_BASS = 3.2e5
-TH_SNARE = 2.5e6
-TH_HIHAT = 0.4e7
-
-
-"""
-# Butterworth bandpass filter setup
-def butter_bandpass(lowcut, highcut, fs, order=5):
-    nyq = 0.5 * fs
-    low = lowcut / nyq
-    high = highcut / nyq
-    b, a = butter(order, [low, high], btype="band")
-    return b, a
-
-
-def bandpass_filter(data, lowcut, highcut, fs, order=5):
-    b, a = butter_bandpass(lowcut, highcut, fs, order=order)
-    y = lfilter(b, a, data)
-    return y
-"""
-
+import keyboard
 
 # Initialize PyAudio
 p = pyaudio.PyAudio()
 
 # Audio stream parameters
-FORMAT = pyaudio.paInt16
+FORMAT = pyaudio.paInt8
 CHANNELS = 1
-RATE = 44100
+RATE = 22000
 sample_time = 0.1
 CHUNK = int(RATE * sample_time)
 
@@ -57,27 +19,131 @@ stream = p.open(
     format=FORMAT, channels=CHANNELS, rate=RATE, input=True, frames_per_buffer=CHUNK
 )
 
+# Define the frequency ranges for different drums
+BASS_DRUM_FREQ_RANGE = (100, 150)  # Bass drum typically in 50-100 Hz
+SNARE_DRUM_FREQ_RANGE = (160, 220)  # Snare drum typically in 200-220 Hz
+HI_HAT_FREQ_RANGE = (350, 400)  # Hi-hat typically in 300-500 Hz
+
+# Define the Peak threshold for each drum
+peak_threshold_bass = 300
+peak_threshold_snare = 900
+peak_threshold_hihat = 300
+
+# Update threshold based on calibration
+TH_BASS = 0
+TH_SNARE = 0
+TH_HIHAT = 0
+
+# Max magnitude for each drum recorded
+max_bass = []
+max_snare = []
+max_hihat = []
+
+END = False
+
+
+# Key press event handler
+def on_space_bar_press(e):
+    global END
+    END = True
+    # print("Space bar pressed, preparing to exit loop...")
+
+
+# Register the space bar press event
+keyboard.on_press_key("space", on_space_bar_press)
+
+
+def calibrate_drum(drum_name, freq_range, threshold_peak, max_list):
+    global END, TH_BASS, TH_SNARE, TH_HIHAT, peak_threshold_bass, peak_threshold_snare, peak_threshold_hihat
+
+    END = False
+
+    input(f"Press Enter to start calibrating {drum_name} Drum...")
+    print(f"Calibrating {drum_name} Drum... Play the samples now.")
+    print("Press space bar to stop calibration.")
+
+    # Register the space bar press event
+    keyboard.on_press_key("space", on_space_bar_press)
+
+    while not END:
+        raw_data = stream.read(CHUNK, exception_on_overflow=False)
+        data = np.frombuffer(raw_data, dtype=np.int8)
+        data_fft = np.abs(fft.fft(data))[: CHUNK // 2]
+
+        freq_index = (
+            freq_range[0] * CHUNK // RATE,
+            freq_range[1] * CHUNK // RATE,
+        )
+
+        drum_fft = data_fft[freq_index[0] : freq_index[1]]
+        current_max = np.max(drum_fft)
+
+        if current_max > threshold_peak:
+            max_list.append(current_max)
+            threshold_peak = (current_max / 3 + threshold_peak) / 2
+            print(threshold_peak)
+
+    max_list = np.array(max_list)
+
+    if len(max_list) == 0:
+        print(
+            f"No {drum_name} drum detected. Please try again by restarting the program."
+        )
+        return
+
+    if drum_name == "Bass":
+        TH_BASS = np.mean(max_list)
+    elif drum_name == "Snare":
+        TH_SNARE = np.mean(max_list)
+    elif drum_name == "Hi-hat":
+        TH_HIHAT = np.mean(max_list)
+
+    print(f"Finished calibrating {drum_name} Drum.")
+
+
+"""
+Calibration Steps: 
+    1. audio input until keyboard inturrupt
+    2. 3 chunks of loop for bass, snare, hihat
+    3. during each loop, I need to record the max magnitude of each drum
+        - range of frequencies around peak magnitue frequency
+    4. number of peaks and distance between two peaks could be taken into the acount
+        - keep track of number of peaks and their positions
+        - number of peaks could be enough?
+"""
+
+# Calibration for Bass Drum
+calibrate_drum("Bass", BASS_DRUM_FREQ_RANGE, peak_threshold_bass, max_bass)
+print(f"Bass Drum adjusted threshold: {TH_BASS}")
+
+
+# Calibration for Snare Drum
+calibrate_drum("Snare", SNARE_DRUM_FREQ_RANGE, peak_threshold_snare, max_snare)
+print(f"Snare Drum adjusted threshold: {TH_SNARE}")
+
+
+# Calibration for Hi-hat Drum
+calibrate_drum("Hi-hat", HI_HAT_FREQ_RANGE, peak_threshold_hihat, max_hihat)
+print(f"Hi-hat Drum adjusted threshold: {TH_HIHAT}")
+
+
+# After calibration, ask use to press space bar to start the detection
+input = input("Press Enter to start drum detection...")
+
+# Main loop
 print("Drum pattern detection started. Press Ctrl+C to stop.")
-
-max_bass = 0
-max_snare = 0
-max_hihat = 0
-
 try:
     while True:
         # Read raw audio data
         raw_data = stream.read(CHUNK, exception_on_overflow=False)
         # Convert raw data to NumPy array
-        data = np.frombuffer(raw_data, dtype=np.int16)
+        data = np.frombuffer(raw_data, dtype=np.int8)
 
         data_fft = np.abs(fft.fft(data))
         data_fft = data_fft[: CHUNK // 2]
         # Find the maximum frequency component
         max_index = np.argmax(data_fft)
         frequency = max_index * RATE / CHUNK
-
-        # print("\nFrequency: {:.2f} Hz".format(frequency))
-        # print("\nMagnitude: ", data_fft[max_index])
 
         bass_index = (
             BASS_DRUM_FREQ_RANGE[0] * CHUNK // RATE,
@@ -96,53 +162,41 @@ try:
         snare_fft = data_fft[snare_index[0] : snare_index[1]]
         hihat_fft = data_fft[hihat_index[0] : hihat_index[1]]
 
-        """
-        # Bandpass filter data for each drum
-        bass_data = bandpass_filter(data, *BASS_DRUM_FREQ_RANGE, RATE)
-        snare_data = bandpass_filter(data, *SNARE_DRUM_FREQ_RANGE, RATE)
-        hi_hat_data = bandpass_filter(data, *HI_HAT_FREQ_RANGE, RATE)
-
-        # Perform FFT and get the magnitudes
-        bass_fft = np.abs(fft.fft(bass_data))
-        snare_fft = np.abs(fft.fft(snare_data))
-        hi_hat_fft = np.abs(fft.fft(hi_hat_data))
-        
-        """
-
         # Find the peak frequency in each drum's frequency range
         bass_peak = np.argmax(bass_fft)
         snare_peak = np.argmax(snare_fft)
         hi_hat_peak = np.argmax(hihat_fft)
 
+        """
         if max(bass_fft) > max_bass:
             max_bass = max(bass_fft)
         if max(snare_fft) > max_snare:
             max_snare = max(snare_fft)
         if max(hihat_fft) > max_hihat:
             max_hihat = max(hihat_fft)
-
-        # print("\nBass drum peak magnitude: ", bass_fft[bass_peak])
-        # print("Snare drum peak magnitude: ", snare_fft[snare_peak])
-        # print("Hi-hat peak magnitude: ", hihat_fft[hi_hat_peak])
+        """
 
         # Check if the peak magnitude exceeds a threshold
-        if bass_fft[bass_peak] > TH_BASS:  # This threshold value can be adjusted
+        if bass_fft[bass_peak] > TH_BASS:
             print("Bass drum hit detected")
             print("\n****Bass drum magnitude: ", bass_fft[bass_peak])
-        if snare_fft[snare_peak] > TH_SNARE:  # This threshold value can be adjusted
+
+        if snare_fft[snare_peak] > TH_SNARE:
             print("Snare drum hit detected")
             print("\n****Snare drum magnitude: ", snare_fft[snare_peak])
-        if hihat_fft[hi_hat_peak] > TH_HIHAT:  # This threshold value can be adjusted
+
+        if hihat_fft[hi_hat_peak] > TH_HIHAT:
             print("Hi-hat hit detected")
             print("\n****Hi-hat magnitude: ", hihat_fft[hi_hat_peak])
-
 
 except KeyboardInterrupt:
     # Stop and close the audio stream
     stream.stop_stream()
     stream.close()
     p.terminate()
-    print("\nrecorded max bass magnitude: ", max_bass)
-    print("recorded max snare magnitude: ", max_snare)
-    print("recorded max hihat magnitude: ", max_hihat)
+
+    # print("\nrecorded max bass magnitude: ", max_bass)
+    # print("recorded max snare magnitude: ", max_snare)
+    # print("recorded max hihat magnitude: ", max_hihat)
+    keyboard.unhook_all()
     print("\nExiting the program.")
