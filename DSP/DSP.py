@@ -3,6 +3,11 @@ import numpy as np
 import numpy.fft as fft
 from scipy.signal import butter, lfilter
 import keyboard
+import pyfirmata
+import time
+
+# Initialize Arduino
+board = pyfirmata.Arduino("C/dev/cu.usbmodem14201")
 
 # Initialize PyAudio
 p = pyaudio.PyAudio()
@@ -20,14 +25,15 @@ stream = p.open(
 )
 
 # Define the frequency ranges for different drums
-BASS_DRUM_FREQ_RANGE = (100, 150)  # Bass drum typically in 50-100 Hz
-SNARE_DRUM_FREQ_RANGE = (160, 220)  # Snare drum typically in 200-220 Hz
-HI_HAT_FREQ_RANGE = (350, 400)  # Hi-hat typically in 300-500 Hz
+BASS_DRUM_FREQ_RANGE = (75, 125)  # Bass drum typically in 50-100 Hz
+SNARE_DRUM_FREQ_RANGE = (400, 550)  # Snare drum typically in 200-220 Hz
+HI_HAT_FREQ_RANGE = (8800, 9350)
+# Hi-hat typically in 300-500 Hz but choose this range to avoid overlap with snare
 
 # Define the Peak threshold for each drum
 peak_threshold_bass = 300
 peak_threshold_snare = 900
-peak_threshold_hihat = 300
+peak_threshold_hihat = 100
 
 # Update threshold based on calibration
 TH_BASS = 0
@@ -92,11 +98,11 @@ def calibrate_drum(drum_name, freq_range, threshold_peak, max_list):
         return
 
     if drum_name == "Bass":
-        TH_BASS = np.mean(max_list)
+        TH_BASS = np.mean(max_list) * 0.7
     elif drum_name == "Snare":
-        TH_SNARE = np.mean(max_list)
+        TH_SNARE = np.mean(max_list) * 0.7
     elif drum_name == "Hi-hat":
-        TH_HIHAT = np.mean(max_list)
+        TH_HIHAT = np.mean(max_list) * 0.7
 
     print(f"Finished calibrating {drum_name} Drum.")
 
@@ -176,18 +182,22 @@ try:
             max_hihat = max(hihat_fft)
         """
 
+        triggered = False
         # Check if the peak magnitude exceeds a threshold
         if bass_fft[bass_peak] > TH_BASS:
-            print("Bass drum hit detected")
-            print("\n****Bass drum magnitude: ", bass_fft[bass_peak])
+            print("*****Bass drum hit detected*****")
+            triggered = True
 
         if snare_fft[snare_peak] > TH_SNARE:
-            print("Snare drum hit detected")
-            print("\n****Snare drum magnitude: ", snare_fft[snare_peak])
+            print("*****Snare drum hit detected*****")
+            triggered = True
 
         if hihat_fft[hi_hat_peak] > TH_HIHAT:
-            print("Hi-hat hit detected")
-            print("\n****Hi-hat magnitude: ", hihat_fft[hi_hat_peak])
+            print("*****Hi-hat hit detected*****")
+            triggered = True
+
+        if triggered:
+            print("")
 
 except KeyboardInterrupt:
     # Stop and close the audio stream
