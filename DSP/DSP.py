@@ -3,11 +3,17 @@ import numpy as np
 import numpy.fft as fft
 from scipy.signal import butter, lfilter
 import keyboard
-import pyfirmata
+import pyfirmata2
 import time
 
 # Initialize Arduino
-board = pyfirmata.Arduino("C/dev/cu.usbmodem14201")
+board = pyfirmata2.Arduino(pyfirmata2.Arduino.AUTODETECT)
+print("connected to board")
+
+
+BASS_LED = board.get_pin("d:2:o")
+SNARE_LED = board.get_pin("d:3:o")
+HIHAT_LED = board.get_pin("d:4:o")
 
 # Initialize PyAudio
 p = pyaudio.PyAudio()
@@ -87,7 +93,7 @@ def calibrate_drum(drum_name, freq_range, threshold_peak, max_list):
         if current_max > threshold_peak:
             max_list.append(current_max)
             threshold_peak = (current_max / 3 + threshold_peak) / 2
-            print(threshold_peak)
+            print(f"{drum_name} Max: ", current_max)
 
     max_list = np.array(max_list)
 
@@ -102,7 +108,7 @@ def calibrate_drum(drum_name, freq_range, threshold_peak, max_list):
     elif drum_name == "Snare":
         TH_SNARE = np.mean(max_list) * 0.7
     elif drum_name == "Hi-hat":
-        TH_HIHAT = np.mean(max_list) * 0.7
+        TH_HIHAT = np.mean(max_list) * 0.5
 
     print(f"Finished calibrating {drum_name} Drum.")
 
@@ -121,16 +127,19 @@ Calibration Steps:
 # Calibration for Bass Drum
 calibrate_drum("Bass", BASS_DRUM_FREQ_RANGE, peak_threshold_bass, max_bass)
 print(f"Bass Drum adjusted threshold: {TH_BASS}")
+print("")
 
 
 # Calibration for Snare Drum
 calibrate_drum("Snare", SNARE_DRUM_FREQ_RANGE, peak_threshold_snare, max_snare)
 print(f"Snare Drum adjusted threshold: {TH_SNARE}")
+print("")
 
 
 # Calibration for Hi-hat Drum
 calibrate_drum("Hi-hat", HI_HAT_FREQ_RANGE, peak_threshold_hihat, max_hihat)
 print(f"Hi-hat Drum adjusted threshold: {TH_HIHAT}")
+print("")
 
 
 # After calibration, ask use to press space bar to start the detection
@@ -187,14 +196,23 @@ try:
         if bass_fft[bass_peak] > TH_BASS:
             print("*****Bass drum hit detected*****")
             triggered = True
+            BASS_LED.write(True)
+        else:
+            BASS_LED.write(False)
 
         if snare_fft[snare_peak] > TH_SNARE:
             print("*****Snare drum hit detected*****")
             triggered = True
+            SNARE_LED.write(True)
+        else:
+            SNARE_LED.write(False)
 
         if hihat_fft[hi_hat_peak] > TH_HIHAT:
             print("*****Hi-hat hit detected*****")
             triggered = True
+            HIHAT_LED.write(True)
+        else:
+            HIHAT_LED.write(False)
 
         if triggered:
             print("")
